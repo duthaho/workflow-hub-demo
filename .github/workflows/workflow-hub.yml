@@ -24,6 +24,6 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npm install --global github:duthaho/workflow-hub#v0.1.0
+      - run: npm install --global https://github.com/duthaho/workflow-hub/releases/download/v0.1.0/duthaho-workflow-hub-0.1.0.tgz
       - run: workflow-hub verify
       - run: workflow-hub doctor --ci
