@@ -62,8 +62,13 @@ test("replaying the same key and payload returns the original task", async () =>
 test("reusing a key with a different payload is rejected", async () => {
   await postTask({ title: "Original" }, "create-3");
   const response = await postTask({ title: "Different" }, "create-3");
+  const whitespaceChange = await postTask(
+    { title: " Original " },
+    "create-3",
+  );
 
   assert.equal(response.status, 409);
+  assert.equal(whitespaceChange.status, 409);
   assert.deepEqual(await response.json(), {
     error: "idempotency_conflict",
     message: "Idempotency-Key was already used with a different payload",
@@ -73,6 +78,10 @@ test("reusing a key with a different payload is rejected", async () => {
 test("missing idempotency key and invalid titles are rejected", async () => {
   const missingKey = await postTask({ title: "No key" });
   const blankTitle = await postTask({ title: "   " }, "create-4");
+  const unknownField = await postTask(
+    { title: "Valid", priority: "high" },
+    "create-5",
+  );
 
   assert.equal(missingKey.status, 400);
   assert.deepEqual(await missingKey.json(), {
@@ -84,4 +93,49 @@ test("missing idempotency key and invalid titles are rejected", async () => {
     error: "invalid_task",
     message: "title must be a non-empty string",
   });
+  assert.equal(unknownField.status, 422);
+  assert.deepEqual(await unknownField.json(), {
+    error: "invalid_task",
+    message: "task body must contain only title",
+  });
+});
+
+test("idempotency retention is bounded and expired keys are reusable", async () => {
+  let now = 1_000;
+  const boundedServer = createServer({
+    maxIdempotencyRecords: 1,
+    idempotencyTtlMs: 100,
+    now: () => now,
+  });
+  await new Promise<void>((resolve) =>
+    boundedServer.listen(0, "127.0.0.1", resolve),
+  );
+  const address = boundedServer.address() as AddressInfo;
+  const url = `http://127.0.0.1:${address.port}`;
+  const send = (key: string) =>
+    fetch(`${url}/tasks`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": key,
+      },
+      body: JSON.stringify({ title: key }),
+    });
+
+  try {
+    assert.equal((await send("first")).status, 201);
+    const full = await send("second");
+    assert.equal(full.status, 503);
+    assert.deepEqual(await full.json(), {
+      error: "idempotency_capacity_reached",
+      message: "idempotency retention capacity is temporarily exhausted",
+    });
+
+    now += 101;
+    assert.equal((await send("second")).status, 201);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      boundedServer.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
 });

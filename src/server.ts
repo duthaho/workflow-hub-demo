@@ -14,9 +14,19 @@ interface Task {
 interface IdempotencyRecord {
   fingerprint: string;
   task: Task;
+  expiresAt: number;
+}
+
+export interface ServerOptions {
+  maxIdempotencyRecords?: number;
+  idempotencyTtlMs?: number;
+  now?: () => number;
 }
 
 const maximumBodyBytes = 64 * 1024;
+const maximumTitleLength = 200;
+const defaultMaximumIdempotencyRecords = 10_000;
+const defaultIdempotencyTtlMs = 24 * 60 * 60 * 1_000;
 
 function sendJson(
   response: ServerResponse,
@@ -50,19 +60,45 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function taskTitle(value: unknown): string | undefined {
+function parseTask(value: unknown):
+  | { title: string; fingerprint: string }
+  | { error: string } {
   if (typeof value !== "object" || value === null || !("title" in value)) {
-    return undefined;
+    return { error: "title must be a non-empty string" };
+  }
+  if (Object.keys(value).length !== 1) {
+    return { error: "task body must contain only title" };
   }
   const title = (value as { title?: unknown }).title;
   if (typeof title !== "string" || title.trim().length === 0) {
-    return undefined;
+    return { error: "title must be a non-empty string" };
   }
-  return title.trim();
+  if (title.length > maximumTitleLength) {
+    return { error: "title must be at most 200 characters" };
+  }
+  return {
+    title: title.trim(),
+    fingerprint: JSON.stringify({ title }),
+  };
 }
 
-export function createServer() {
+export function createServer(options: ServerOptions = {}) {
+  const maxIdempotencyRecords =
+    options.maxIdempotencyRecords ?? defaultMaximumIdempotencyRecords;
+  const idempotencyTtlMs = options.idempotencyTtlMs ?? defaultIdempotencyTtlMs;
+  const now = options.now ?? Date.now;
+  if (maxIdempotencyRecords < 1 || idempotencyTtlMs < 1) {
+    throw new Error("Idempotency capacity and TTL must be positive");
+  }
   const idempotencyRecords = new Map<string, IdempotencyRecord>();
+
+  function purgeExpiredRecords(currentTime: number): void {
+    for (const [key, record] of idempotencyRecords) {
+      if (record.expiresAt <= currentTime) {
+        idempotencyRecords.delete(key);
+      }
+    }
+  }
 
   return createNodeServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {
@@ -97,19 +133,20 @@ export function createServer() {
         return;
       }
 
-      const title = taskTitle(body);
-      if (title === undefined) {
+      const parsedTask = parseTask(body);
+      if ("error" in parsedTask) {
         sendJson(response, 422, {
           error: "invalid_task",
-          message: "title must be a non-empty string",
+          message: parsedTask.error,
         });
         return;
       }
 
-      const fingerprint = JSON.stringify({ title });
+      const currentTime = now();
+      purgeExpiredRecords(currentTime);
       const existing = idempotencyRecords.get(idempotencyKey);
       if (existing) {
-        if (existing.fingerprint !== fingerprint) {
+        if (existing.fingerprint !== parsedTask.fingerprint) {
           sendJson(response, 409, {
             error: "idempotency_conflict",
             message: "Idempotency-Key was already used with a different payload",
@@ -123,12 +160,24 @@ export function createServer() {
         return;
       }
 
+      if (idempotencyRecords.size >= maxIdempotencyRecords) {
+        sendJson(response, 503, {
+          error: "idempotency_capacity_reached",
+          message: "idempotency retention capacity is temporarily exhausted",
+        });
+        return;
+      }
+
       const task: Task = {
         id: randomUUID(),
-        title,
+        title: parsedTask.title,
         status: "pending",
       };
-      idempotencyRecords.set(idempotencyKey, { fingerprint, task });
+      idempotencyRecords.set(idempotencyKey, {
+        fingerprint: parsedTask.fingerprint,
+        task,
+        expiresAt: currentTime + idempotencyTtlMs,
+      });
       sendJson(response, 201, task, { location: `/tasks/${task.id}` });
       return;
     }
