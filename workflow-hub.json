@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "workflow-hub-demo",
+    "profile": "node"
+  },
+  "providers": {
+    "author": "claude",
+    "reviewers": [
+      "codex"
+    ]
+  },
+  "commands": {
+    "verify": "npm run check"
+  },
+  "risk": {
+    "highRiskPaths": [
+      ".github/**",
+      "**/auth/**",
+      "**/migrations/**",
+      "**/security/**",
+      "Dockerfile*"
+    ]
+  },
+  "review": {
+    "maxRounds": 3,
+    "minimumConfidence": 0.8
+  }
+}
