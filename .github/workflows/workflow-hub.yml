@@ -27,3 +27,71 @@ jobs:
       - run: npm install --global https://github.com/duthaho/workflow-hub/releases/download/v0.2.0/duthaho-workflow-hub-0.2.0.tgz
       - run: workflow-hub verify
       - run: workflow-hub doctor --ci
+
+  codex-correctness:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && vars.WORKFLOW_HUB_AI_REVIEW == 'enabled' && vars.WORKFLOW_HUB_REVIEW_PROVIDER == 'codex'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm install --global https://github.com/duthaho/workflow-hub/releases/download/v0.2.0/duthaho-workflow-hub-0.2.0.tgz @openai/codex@0.163.0
+      - name: Run read-only Codex correctness review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: workflow-hub review --provider codex --kind correctness --base origin/main
+
+  codex-security:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && vars.WORKFLOW_HUB_AI_REVIEW == 'enabled' && vars.WORKFLOW_HUB_REVIEW_PROVIDER == 'codex'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm install --global https://github.com/duthaho/workflow-hub/releases/download/v0.2.0/duthaho-workflow-hub-0.2.0.tgz @openai/codex@0.163.0
+      - name: Run read-only Codex security review
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: workflow-hub review --provider codex --kind security --base origin/main
+
+  claude-correctness:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && vars.WORKFLOW_HUB_AI_REVIEW == 'enabled' && vars.WORKFLOW_HUB_REVIEW_PROVIDER == 'claude'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm install --global https://github.com/duthaho/workflow-hub/releases/download/v0.2.0/duthaho-workflow-hub-0.2.0.tgz @anthropic-ai/claude-code@2.1.302
+      - name: Run read-only Claude correctness review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: workflow-hub review --provider claude --kind correctness --base origin/main
+
+  claude-security:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && vars.WORKFLOW_HUB_AI_REVIEW == 'enabled' && vars.WORKFLOW_HUB_REVIEW_PROVIDER == 'claude'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - run: npm install --global https://github.com/duthaho/workflow-hub/releases/download/v0.2.0/duthaho-workflow-hub-0.2.0.tgz @anthropic-ai/claude-code@2.1.302
+      - name: Run read-only Claude security review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: workflow-hub review --provider claude --kind security --base origin/main
